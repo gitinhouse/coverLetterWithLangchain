@@ -1,7 +1,7 @@
 import json
 from django.http import StreamingHttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
-from .ai_logic import get_response, initialize_llm
+from .ai_logic import get_response, initialize_llm , get_all_projects
 
 @csrf_exempt
 def AIView(request):
@@ -20,3 +20,12 @@ def AIView(request):
         yield "event: complete\ndata: {}\n\n"
                     
     return StreamingHttpResponse(event_stream(), content_type='text/event-stream')
+
+@csrf_exempt
+def ProjectListView(request):
+    print("Fetching data from ChromaDB...")
+    try:
+        data = get_all_projects()
+        return JsonResponse(data , safe=False)
+    except Exception as e:
+        return JsonResponse({"error":str(e)},status=500)

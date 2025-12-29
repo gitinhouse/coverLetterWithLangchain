@@ -11,7 +11,12 @@ def load_csv_file():
         return
     
     print(f"LOading {CSV_FILE_PATH}...")
-    loader = CSVLoader(file_path=CSV_FILE_PATH, encoding="utf-8")
+    loader = CSVLoader(
+        file_path=CSV_FILE_PATH, 
+        encoding="utf-8-sig",
+        metadata_columns=["Project URL","Categories","Technology","Priority", "Description"],
+        content_columns=["Description", "Technology", "Categories", "Project URL"] 
+    )
     docs = loader.load()
     
     embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLm-L6-v2")
