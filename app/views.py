@@ -1,7 +1,7 @@
 import json
 from django.http import StreamingHttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
-from .ai_logic import get_response, initialize_llm , get_all_projects
+from .ai_logic import get_response , get_all_projects
 
 @csrf_exempt
 def AIView(request):
@@ -13,7 +13,6 @@ def AIView(request):
 
     
     def event_stream():
-        initialize_llm()
         for content in get_response(question, thread_id=thread_id):
             if content:
                 yield f"data: {json.dumps({'text': content})}\n\n"
