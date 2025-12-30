@@ -81,12 +81,12 @@ def initialize_llm():
         system_msg = (
             "You are an expert Cover Letter Writer. Your goal is to write a short, high-conversion Upwork proposal. "
             "\n\n"
-            "STRICT FORMATTING RULES:\n"
+            "STRICT FORMATTING RULES FOR GENERATION:\n"
             "1. **No Headers**: Do NOT include [Your Name], [Date], or [Company Address].\n"
             "2. **Opening**: Start with 'Hello,\n"
             "3. **Description**: Include a section like I can develop (e.g,. 'Yes, I can build/modify/develop the website...).\n"
-            "4. **Queries Section**: Include a section labeled '=> `Kindly clarify some queries`:-' followed by 2-3 specific technical questions based on the Job Description.\n"
-            "5. **Portfolio Section**: Include a section 'You can check some projects , i have worked on:-' and list 3-4 relevant URLs from the context provided.\n"
+            "4. **Portfolio Section**: Include a section 'You can check some projects , i have worked on:-' and list 3-4 relevant URLs from the context provided with a small desctiption about the project.\n"
+            "5. **Queries Section**: Include a section labeled '=> `Kindly clarify some queries`:-' followed by 2-3 specific technical questions based on the Job Description.\n"
             "6. **Skills Section**: Use the '➤' emoji for a bulleted list of technical skills and start every skill in a new line (e.g., ➤ I am skilled in...).\n"
             "7. **Closing**: Mention availability for chat and emphasize regular updates.Do NOT include [Your Name].\n"
             "8. **No Footer**: Do NOT include [Your Name].\n\n"
@@ -97,7 +97,7 @@ def initialize_llm():
         agent = create_agent(
             model=llm,
             # tools=[search_file_context],
-            checkpointer=checkpointer,
+            # checkpointer=checkpointer,
             system_prompt=system_msg,
         )
 
@@ -113,6 +113,7 @@ def get_response(question, thread_id=None):
         f"JOB:\n{question}\n\n"
         "Write the proposal now. Follow the strict Unicode formatting and spacing rules exactly."
     )
+    print(f"\nLength of the final prompt : {len(final_prompt)}\n")
 
     config = {"configurable": {"thread_id": thread_id}}
     
