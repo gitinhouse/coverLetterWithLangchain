@@ -1,23 +1,13 @@
 import faulthandler
 faulthandler.enable()
-import os
-import uuid
-from psycopg_pool import ConnectionPool
 from langchain_community.chat_models import ChatLlamaCpp 
 from langchain_chroma import Chroma 
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain.agents import create_agent
 from langchain.tools import tool
-from langgraph.checkpoint.postgres import PostgresSaver
 
-DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/langchain"
 MODEL_PATH = "../models/Qwen2.5-7B-Instruct-Q4_K_M.gguf"
 
-pool = ConnectionPool(
-    conninfo=DATABASE_URL, 
-    max_size=20,
-    kwargs={"autocommit": True}
-)
 
 llm = ChatLlamaCpp(
     model_path=MODEL_PATH,
@@ -47,15 +37,9 @@ system_msg = (
     "2. **Opening**: Start with 'Hello,\n"
     "3. **Description**: Include a section like I can develop (e.g,. 'Yes, I can build/modify/develop the website...).\n"
     "4. **Portfolio Section**: Include a section 'You can check some projects , i have worked on:-' "
-    "and list 3-4 relevant projects from the context. Each project MUST include exactly these fields:\n"
+    "and list 4-5 relevant projects from the context. Each project MUST include exactly these fields:\n"
     "   - Project URL: [URL from context]\n"
-    "   - Categories: [Categories from context]\n" 
-    "   - Tech: [Tech from context]\n"
-    "   - Description: [Short summary of details]\n"    
-    "5. **Queries Section**: Include a section labeled '=> `Kindly clarify some queries`:-' followed by 2-3 specific technical questions based on the Job Description.\n"
-    "6. **Skills Section**: Use the '➤' emoji for a bulleted list of technical skills and start every skill in a new line (e.g., ➤ I am skilled in...).\n"
-    "7. **Closing**: Mention availability for chat and emphasize regular updates.Do NOT include [Your Name].\n"
-    "8. **No Footer**: Do NOT include [Your Name].\n\n"
+    "5. **Closing**: Mention availability for chat and emphasize regular updates.Do NOT include [Your Name].\n"
     "TONE: Direct, technical, and client-focused. Avoid 'fluff' like 'I am writing to express my interest'."
 )
 
@@ -80,16 +64,13 @@ agent = create_agent(
 def search_file_context(query: str,thread_id) -> str:
     """Search for global_csv_data in chroma db."""
     try:
-        results = vectorstore.similarity_search(query, k=7)
+        results = vectorstore.similarity_search(query, k=13)
         
         context_parts = []
         for d in results:
             url = d.metadata.get("Project URL","No URL")
-            tech = d.metadata.get("Technology","N/A")
-            categories = d.metadata.get("Categories", "N/A") 
-            desc = d.metadata.get("Description",d.page_content)
             
-            context_parts.append(f"Project URL: {url}\nTech: {tech}\nCategories: {categories}\nDetails: {desc}\n--")
+            context_parts.append(f"Project URL: {url}\n--")
             
         context = "\n".join(context_parts)
         print(f"[CONTEXT ]: context from tool ::{context}")
