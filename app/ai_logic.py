@@ -53,27 +53,50 @@ agent = create_agent(
 def search_file_context(tech: str, query: str,thread_id) -> str:
     """Search with Priority Boosting and Metadata"""
     try:
-        combined_search = f"{tech} {query}"
-        results = vectorstore.similarity_search_with_score(combined_search, k=15)
+        results = vectorstore.similarity_search_with_score(tech, k=20)
+        target_tech = tech.lower().strip()
+        filtered_tech = []
+        
+        for doc , store in results:
+            csv_tech_field = str(doc.metadata.get("Technology","")).lower()
+            csv_category_field = str(doc.metadata.get("Categories","")).lower()
+            
+            if target_tech in csv_tech_field or target_tech in csv_category_field:
+                filtered_tech.append((doc , store))
+        
+        if not filtered_tech:
+            return f"No strict matches found for technology : {tech}"
+        
+        query_embeddings = embeddings.embed_query(query) 
         
         top_results = []
-        for i ,score in results:
-            priority = int(i.metadata.get("Priority",0) or 0)
-            top_score = score - (priority * 0.05)
-            top_results.append((i,top_score))
-        
-        top_results.sort(key=lambda x:x[1])
+        for doc ,score in filtered_tech:
+            
+            doc_text = f"{doc.page_content} {doc.metadata.get('Categories','')}"
+            doc_embeddings = embeddings.embed_query(doc_text)
+            
+            similarity = np.dot(query_embeddings, doc_embeddings) / (
+                np.linalg.norm(query_embeddings) * np.linalg.norm(doc_embeddings) + 1e-8
+            )
+            
+            priority = int(doc.metadata.get("Priority",0) or 0)
+            final_score = similarity + (priority * 0.05)
+            top_results.append((doc,final_score))
+        print(f"[UNSORTED SCORES]: {[round(x[1], 4) for x in top_results]}")
+        top_results.sort(key=lambda x:x[1],reverse=True)
+        print(f"[SORTED SCORES]: {[round(x[1], 4) for x in top_results]}")
         
         context_parts = []
         for d , _ in top_results[:4]:
             url = d.metadata.get("Project URL","No URL")
             categories = d.metadata.get("Categories", "N/A") 
-            desc = d.metadata.get("Description",d.page_content[:200])
+            desc = d.metadata.get("Description",d.page_content[:50])
             
             context_parts.append(f"Project URL: {url}\nCategories: {categories}\nDetails: {desc}--")
             
         context = "\n".join(context_parts)
-        print(f"[CONTEXT ]: context from tool for {tech}::{context}")
+        print(f"[CONTEXT :] Length of context : {len(context)}")
+        print(f"[RE-RANKED CONTEXT]: Found {len(top_results)} projects for {tech}")
         return context if context else "No matching data found in the CSV store."
     except Exception as e:
         print(f"Global search error: {e}")
@@ -116,7 +139,10 @@ def get_response(question,tech_list, thread_id=None):
         "2. Write a 3-4 sentence technical paragraph explaining how you will solve the JOB requirements. Start with 'Yes, I can...'\n"
         "3. For EACH technology listed in the CONTEXT , if the context specifies plugins : get plugins ::else get projects,write a section :"
         "'I have worked with [Technology Name] and built these projects:' "
-        "followed by 3-4 project or plugin URLs and project categories from that specific project. " 
+        "followed by 3-4 projects or plugins. " 
+        "Each project MUST include exactly these fields:\n"
+        "   - Project URL: [URL from context]\n"
+        "   - Categories: [Categories from context]\n" 
         "If less than 3 projects exist in a category , list only the relevent 1 -2 projects .\n"
         "4. End with a professional closing paragraph regarding your experience."
     )
