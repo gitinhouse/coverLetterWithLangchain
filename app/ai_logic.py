@@ -5,6 +5,7 @@ from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain.agents import create_agent
 from langchain.tools import tool
+import numpy as np
 
 MODEL_PATH = "../models/Qwen2.5-7B-Instruct-Q4_K_M.gguf"
 
@@ -50,17 +51,26 @@ agent = create_agent(
 
 @tool
 def search_file_context(tech: str, query: str,thread_id) -> str:
-    """Search for global_csv_data in chroma db."""
+    """Search with Priority Boosting and Metadata"""
     try:
         combined_search = f"{tech} {query}"
-        results = vectorstore.similarity_search(combined_search, k=9)
+        results = vectorstore.similarity_search_with_score(combined_search, k=15)
+        
+        top_results = []
+        for i ,score in results:
+            priority = int(i.metadata.get("Priority",0) or 0)
+            top_score = score - (priority * 0.05)
+            top_results.append((i,top_score))
+        
+        top_results.sort(key=lambda x:x[1])
         
         context_parts = []
-        for d in results:
+        for d , _ in top_results[:4]:
             url = d.metadata.get("Project URL","No URL")
             categories = d.metadata.get("Categories", "N/A") 
+            desc = d.metadata.get("Description",d.page_content[:200])
             
-            context_parts.append(f"Project URL: {url}\nCategories: {categories}\n--")
+            context_parts.append(f"Project URL: {url}\nCategories: {categories}\nDetails: {desc}--")
             
         context = "\n".join(context_parts)
         print(f"[CONTEXT ]: context from tool for {tech}::{context}")
@@ -85,16 +95,19 @@ def get_response(question,tech_list, thread_id=None):
         structured_context += f"RELEVANT PROJECTS : \n{projects}\n"
         structured_context += "---\n"
     
-    # final_prompt = (
-    #     f"CONTEXT (Categorized by Technology):\n{structured_context}\n"
-    #     f"JOB:\n{question}\n\n"
-    #     "TASK:\n"
-    #     "Write the proposal. For EACH technology listed in the CONTEXT , if the context specifies plugins : get plugins ::else get projects,create a section: "
-    #     " 'I have worked with [Technology Name] and built these projects/plugins:' "
-    #     "followed by 3-4 project or plugin URLs from that specific Category. " 
-    #     "If less than 3 projects exist in a category , list only the relevent 1 -2 projects"
-    # )
+    summarizer_prompt = (
+        f"JOB DESCRIPTION: {question}\n\n"
+        f"RAW PROJECT DATA: {structured_context}\n\n"
+        "TASK: Filter the projects above. Keep only the 3 most relevant projects. "
+        "Summarize the technical details of these projects so they can be used to prove expertise. "
+        "Output the summarized projects and a brief technical strategy for the job."
+    )
+    
+    print(">>> Summarizing context...")
+    # summary = llm.invoke(summarizer_prompt).content
+    
     final_prompt = (
+        # f"SUMMARIZED CONTEXT:\n{summary}\n\n"
         f"CONTEXT (Categorized by Technology):\n{structured_context}\n"
         f"JOB DESCRIPTION :\n{question}\n\n"
         "TASK: Write a proposal based on the CONTEXT and JOB above.\n"
