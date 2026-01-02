@@ -25,23 +25,11 @@ llm = ChatLlamaCpp(
         
 
 system_msg = (
-    "You are an expert Cover Letter Writer. Your goal is to write a short, high-conversion Upwork proposal. "
-    "\n\n"
-    "PORTFOLIO SELECTION LOGIC (CRITICAL):\n"
-    "1. **Tech-Stack Priority**: You MUST prioritize projects from the CONTEXT that match the Job's category and Job's Technology (e.g., if the job is 'WordPress', do NOT use 'Shopify' or 'Gmail Extension' links even if they use AI).\n"
-    "2. **Keyword Filtering**: Only select URLs where the 'Tech','Category' or 'Details' fields in the CONTEXT share at least one primary keyword with the JOB description.\n"
-    "3. **Strict Discard**: If the CONTEXT contains projects that use a completely different platform than the JOB, ignore them. It is better to list only 1 highly relevant URL than 4 irrelevant ones.\n"
-    "\n"
-    "STRICT FORMATTING RULES FOR GENERATION:\n"
-    "1. **No Headers**: Do NOT include [Your Name], [Date], or [Company Address].\n"
-    "2. **Opening**: Start with 'Hello,\n"
-    "3. **Description**: Include a section like I can develop (e.g,. 'Yes, I can build/modify/develop the website...).\n"
-    "4. **Portfolio Section**: Include a section 'You can check some projects , i have worked on:-' "
-    "and list 4-5 relevant projects from the context. Each project MUST include exactly these fields:\n"
-    "   - Project URL: [URL from context]\n"
-    "5. **Closing**: Mention availability for chat and emphasize regular updates.Do NOT include [Your Name].\n"
-    "TONE: Direct, technical, and client-focused. Avoid 'fluff' like 'I am writing to express my interest'."
+    "You are an expert Upwork Proposal Writer. Your goal is to generate professional, "
+    "direct proposals. You must never include step numbers (1, 2, 3) in your final response. "
+    "You must follow the structure provided in the user prompt exactly without skipping sections."
 )
+
 
 embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
 
@@ -61,33 +49,63 @@ agent = create_agent(
 
 
 @tool
-def search_file_context(query: str,thread_id) -> str:
+def search_file_context(tech: str, query: str,thread_id) -> str:
     """Search for global_csv_data in chroma db."""
     try:
-        results = vectorstore.similarity_search(query, k=13)
+        combined_search = f"{tech} {query}"
+        results = vectorstore.similarity_search(combined_search, k=9)
         
         context_parts = []
         for d in results:
             url = d.metadata.get("Project URL","No URL")
+            categories = d.metadata.get("Categories", "N/A") 
             
-            context_parts.append(f"Project URL: {url}\n--")
+            context_parts.append(f"Project URL: {url}\nCategories: {categories}\n--")
             
         context = "\n".join(context_parts)
-        print(f"[CONTEXT ]: context from tool ::{context}")
+        print(f"[CONTEXT ]: context from tool for {tech}::{context}")
         return context if context else "No matching data found in the CSV store."
     except Exception as e:
         print(f"Global search error: {e}")
         return "Error accessing CSV data store."
 
 
-def get_response(question, thread_id=None):
+def get_response(question,tech_list, thread_id=None):
     
-    csv_context = search_file_context.invoke({"query": question, "thread_id": thread_id})
+    if not isinstance(tech_list, list):
+        tech_list = [tech_list] if tech_list else []
+        
+    structured_context = ""
     
+    for i in tech_list:
+        print(f" >>> Searching for : {i}")
+        projects = search_file_context.invoke({"tech":i,"query":question,"thread_id":thread_id})  
+        
+        structured_context += f"TECHNOLOGY: {i}\n"
+        structured_context += f"RELEVANT PROJECTS : \n{projects}\n"
+        structured_context += "---\n"
+    
+    # final_prompt = (
+    #     f"CONTEXT (Categorized by Technology):\n{structured_context}\n"
+    #     f"JOB:\n{question}\n\n"
+    #     "TASK:\n"
+    #     "Write the proposal. For EACH technology listed in the CONTEXT , if the context specifies plugins : get plugins ::else get projects,create a section: "
+    #     " 'I have worked with [Technology Name] and built these projects/plugins:' "
+    #     "followed by 3-4 project or plugin URLs from that specific Category. " 
+    #     "If less than 3 projects exist in a category , list only the relevent 1 -2 projects"
+    # )
     final_prompt = (
-        f"CONTEXT:\n{csv_context}\n\n"
-        f"JOB:\n{question}\n\n"
-        "Write the proposal now. Follow the strict Unicode formatting and spacing rules exactly."
+        f"CONTEXT (Categorized by Technology):\n{structured_context}\n"
+        f"JOB DESCRIPTION :\n{question}\n\n"
+        "TASK: Write a proposal based on the CONTEXT and JOB above.\n"
+        "Follow this exact sequence:\n"
+        "1. Start with exactly 'Hello,'\n"
+        "2. Write a 3-4 sentence technical paragraph explaining how you will solve the JOB requirements. Start with 'Yes, I can...'\n"
+        "3. For EACH technology listed in the CONTEXT , if the context specifies plugins : get plugins ::else get projects,write a section :"
+        "'I have worked with [Technology Name] and built these projects:' "
+        "followed by 3-4 project or plugin URLs and project categories from that specific project. " 
+        "If less than 3 projects exist in a category , list only the relevent 1 -2 projects .\n"
+        "4. End with a professional closing paragraph regarding your experience."
     )
     print(f"\nLength of the final prompt : {len(final_prompt)}\n")
 

@@ -10,10 +10,18 @@ def AIView(request):
 
     question = request.POST.get('question')
     thread_id = request.POST.get('thread_id')
-
+    
+    tech_list =[]
+    if "Target Technologies:" in question:
+        parts = question.split("Target Technologies:")
+        if len(parts) >1:
+            tech_raw = parts[1].strip()
+            tech_list = [t.strip() for t in tech_raw.split(",") if t.strip()]
+    
+    print(f"Extracted Technologies: {tech_list}")
     
     def event_stream():
-        for content in get_response(question, thread_id=thread_id):
+        for content in get_response(question,tech_list, thread_id=thread_id):
             if content:
                 yield f"data: {json.dumps({'text': content})}\n\n"
         yield "event: complete\ndata: {}\n\n"
