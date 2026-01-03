@@ -10,6 +10,8 @@ def AIView(request):
 
     question = request.POST.get('question')
     thread_id = request.POST.get('thread_id')
+    modelChoice = request.POST.get('model')
+    print(f"[MODEL CHOICE] : {modelChoice}")
     
     tech_list =[]
     if "Target Technologies:" in question:
@@ -21,7 +23,7 @@ def AIView(request):
     print(f"Extracted Technologies: {tech_list}")
     
     def event_stream():
-        for content in get_response(question,tech_list, thread_id=thread_id):
+        for content in get_response(question,tech_list, thread_id=thread_id,modelChoice=modelChoice):
             if content:
                 yield f"data: {json.dumps({'text': content})}\n\n"
         yield "event: complete\ndata: {}\n\n"

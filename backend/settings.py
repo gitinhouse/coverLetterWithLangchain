@@ -1,5 +1,10 @@
 from pathlib import Path
 from corsheaders.defaults import default_headers
+from dotenv import load_dotenv
+import os
+load_dotenv()
+
+api_key = os.getenv("OPENAI_API_KEY")
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 

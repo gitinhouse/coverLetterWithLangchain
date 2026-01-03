@@ -6,6 +6,9 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain.agents import create_agent
 from langchain.tools import tool
 import numpy as np
+from langchain_openai import ChatOpenAI
+from langchain_community.document_loaders import WebBaseLoader
+import re
 
 MODEL_PATH = "../models/Qwen2.5-7B-Instruct-Q4_K_M.gguf"
 
@@ -22,6 +25,12 @@ llm = ChatLlamaCpp(
     n_gpu_layers=0,
     streaming=True,  
     verbose=True 
+)
+
+gpt_llm = ChatOpenAI(
+    model="gpt-4.0",
+    temperature=0.1,
+    streaming=True
 )
         
 
@@ -40,12 +49,8 @@ vectorstore = Chroma(
     collection_name="global_csv_data"
 )
 
-agent = create_agent(
-    model=llm,
-    # tools=[search_file_context],
-    # checkpointer=checkpointer,
-    system_prompt=system_msg,
-)
+agent_qwen = create_agent(model=llm, system_prompt=system_msg)
+agent_gpt = create_agent(model=gpt_llm, system_prompt=system_msg)
 
 
 
@@ -90,9 +95,9 @@ def search_file_context(tech: str, query: str,thread_id) -> str:
         for d , _ in top_results[:4]:
             url = d.metadata.get("Project URL","No URL")
             categories = d.metadata.get("Categories", "N/A") 
-            desc = d.metadata.get("Description",d.page_content[:50])
+            # desc = d.metadata.get("Description",d.page_content[:50])
             
-            context_parts.append(f"Project URL: {url}\nCategories: {categories}\nDetails: {desc}--")
+            context_parts.append(f"Project URL: {url}\nCategories: {categories}--")
             
         context = "\n".join(context_parts)
         print(f"[CONTEXT :] Length of context : {len(context)}")
@@ -103,8 +108,25 @@ def search_file_context(tech: str, query: str,thread_id) -> str:
         return "Error accessing CSV data store."
 
 
-def get_response(question,tech_list, thread_id=None):
+def get_response(question,tech_list, thread_id=None,modelChoice=None):
     
+    current_agent = agent_gpt if modelChoice == 'GPT' else agent_qwen
+    
+    found_urls = re.findall(r'(https?://[^\s]+)',question)
+    url_context =""
+
+    if found_urls:
+        print(f"[FOUND URL]: {found_urls}\n")
+        try:
+            loader = WebBaseLoader(found_urls[0])
+            docs = loader.load()
+            
+            web_text = docs[0].page_content[:1000].replace('\n',' ')
+            url_context = f"\nUSER PROVIDED URL CONTENT : {web_text}\n"
+            print(f"[URL CONTEXT] : {url_context}\n")
+        except Exception as e:
+            print(f"Error occured during reading URL : {e}")
+        
     if not isinstance(tech_list, list):
         tech_list = [tech_list] if tech_list else []
         
@@ -118,33 +140,36 @@ def get_response(question,tech_list, thread_id=None):
         structured_context += f"RELEVANT PROJECTS : \n{projects}\n"
         structured_context += "---\n"
     
-    summarizer_prompt = (
-        f"JOB DESCRIPTION: {question}\n\n"
-        f"RAW PROJECT DATA: {structured_context}\n\n"
-        "TASK: Filter the projects above. Keep only the 3 most relevant projects. "
-        "Summarize the technical details of these projects so they can be used to prove expertise. "
-        "Output the summarized projects and a brief technical strategy for the job."
-    )
-    
-    print(">>> Summarizing context...")
-    # summary = llm.invoke(summarizer_prompt).content
-    
     final_prompt = (
-        # f"SUMMARIZED CONTEXT:\n{summary}\n\n"
         f"CONTEXT (Categorized by Technology):\n{structured_context}\n"
+        f"{url_context}"
         f"JOB DESCRIPTION :\n{question}\n\n"
         "TASK: Write a proposal based on the CONTEXT and JOB above.\n"
         "Follow this exact sequence:\n"
         "1. Start with exactly 'Hello,'\n"
-        "2. Write a 3-4 sentence technical paragraph explaining how you will solve the JOB requirements. Start with 'Yes, I can...'\n"
-        "3. For EACH technology listed in the CONTEXT , if the context specifies plugins : get plugins ::else get projects,write a section :"
-        "'I have worked with [Technology Name] and built these projects:' "
-        "followed by 3-4 projects or plugins. " 
-        "Each project MUST include exactly these fields:\n"
+    )
+    
+    if url_context:
+        final_prompt += (
+            f"2. IMPORTANT: In your first paragraph, explicitly mention that you have 'analyzed the website {found_urls[0]}' "
+            "and explain how your technical solution applies specifically to what you saw there. "
+            "Write a 3-4 sentence paragraph starting with 'Yes, I can...'\n"
+        )
+    else:
+        final_prompt += ("2. Write a 3-4 sentence technical paragraph explaining how you will solve the JOB requirements. Start with 'Yes, I can...'\n")
+        
+    final_prompt += (
+        "3. For EACH technology listed in the CONTEXT (Categorized by Technology) , if the JOB DESCRIPTION specifies plugins : get plugins ::else get projects,write a section :"
+        "'I have worked with [Technology Name] and built these projects:'\n "
+        "followed by 3-4 project or plugin URLs"
+        "Each project MUST include exactly these fields and project Url and categories must be in different lines:\n"
         "   - Project URL: [URL from context]\n"
-        "   - Categories: [Categories from context]\n" 
+        "   - Categories: [Categories from context]\n"
         "If less than 3 projects exist in a category , list only the relevent 1 -2 projects .\n"
-        "4. End with a professional closing paragraph regarding your experience."
+        "4. Include a section labeled '`Kindly clarify some queries`:-' followed by 2-3 specific technical questions based on the Job Description.\n"
+        "5. End with a professional closing paragraph regarding your experience.\n"
+        "6. Add this line : Looking forward to your response,\n"
+        "7. Close it with : Regards."
     )
     print(f"\nLength of the final prompt : {len(final_prompt)}\n")
 
@@ -152,7 +177,7 @@ def get_response(question,tech_list, thread_id=None):
     def generator():
         print(">>> [DEBUG] Generating optimized response...")
         try:
-            for message, metadata in agent.stream(
+            for message, metadata in current_agent.stream(
                 {"messages": [("user", final_prompt)]}, 
                 stream_mode="messages"
             ):
