@@ -161,7 +161,7 @@ def get_response(question,tech_list, thread_id=None,modelChoice=None):
     final_prompt += (
         "3. For EACH technology listed in the CONTEXT (Categorized by Technology) , if the JOB DESCRIPTION specifies plugins : get plugins ::else get projects,write a section :"
         "'I have worked with [Technology Name] and built these projects:'\n "
-        "followed by 3-4 project or plugin URLs"
+        "followed by 3-4 project or plugin URLs ,"
         "Each project MUST include exactly these fields and project Url and categories must be in different lines:\n"
         "   - Project URL: [URL from context]\n"
         "   - Categories: [Categories from context]\n"
@@ -171,6 +171,7 @@ def get_response(question,tech_list, thread_id=None,modelChoice=None):
         "6. Add this line : Looking forward to your response,\n"
         "7. Close it with : Regards."
     )
+    print(f"\nFINAL PROMPT : {final_prompt}\n")
     print(f"\nLength of the final prompt : {len(final_prompt)}\n")
 
     
