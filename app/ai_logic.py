@@ -8,10 +8,14 @@ from langchain.tools import tool
 import numpy as np
 from langchain_openai import ChatOpenAI
 from langchain_community.document_loaders import WebBaseLoader
+import threading
 import re
 
-MODEL_PATH = "../models/Qwen2.5-7B-Instruct-Q4_K_M.gguf"
 
+MODEL_PATH = "../models/Qwen2.5-7B-Instruct-Q4_K_M.gguf"
+VALIDATION_MODEL_PATH = "../ModelForValidation/qwen2.5-0.5b-instruct-q4_k_m.gguf"
+
+llama_lock = threading.Lock()
 
 llm = ChatLlamaCpp(
     model_path=MODEL_PATH,
@@ -24,7 +28,17 @@ llm = ChatLlamaCpp(
     n_threads=2,
     n_gpu_layers=0,
     streaming=True,  
-    verbose=True 
+    verbose=False 
+)
+
+validation_llm = ChatLlamaCpp(
+    model_path=str(VALIDATION_MODEL_PATH),
+    temperature=0.1,
+    max_tokens=10,
+    n_ctx=2048, 
+    n_threads=2,
+    n_gpu_layers=0,
+    verbose=False 
 )
 
 gpt_llm = ChatOpenAI(
@@ -108,9 +122,28 @@ def search_file_context(tech: str, query: str,thread_id) -> str:
         return "Error accessing CSV data store."
 
 
+def validateQuestion(question: str,modelChoice) -> bool:
+    validation_prompt = (
+        "You are an input filter . Analyze the following text.\n"
+        f"{question}"
+        "Is this a legitimate job description or technical request that requires a professional proposal? "
+        "Response with ONLY 'YES' or 'NO' . Do not Explain."
+    )
+    with llama_lock:
+        llmToUse = gpt_llm if modelChoice == 'GPT' else llm
+        response = llmToUse.invoke(validation_prompt)
+        content = response.content.strip().upper()
+    
+    print(f"[VALIDATION CHECK]: {content}")
+    return "YES" in content
+
 def get_response(question,tech_list, thread_id=None,modelChoice=None):
     
-    current_agent = agent_gpt if modelChoice == 'GPT' else agent_qwen
+    # if not validateQuestion(question,modelChoice):
+    #     yield "Error: the provided input does not appear to be valid job description . Plear provide a clear project requirement"
+    #     return 
+    
+    
     
     found_urls = re.findall(r'(https?://[^\s]+)',question)
     client_site_url = found_urls[0] if found_urls else "N/A"
@@ -176,22 +209,41 @@ def get_response(question,tech_list, thread_id=None,modelChoice=None):
         "6. Add this line : Looking forward to your response,\n"
         "7. Close it with : Regards."
     )
-    print(f"\nFINAL PROMPT : {final_prompt}\n")
+    # print(f"\nFINAL PROMPT : {final_prompt}\n")
     print(f"\nLength of the final prompt : {len(final_prompt)}\n")
 
     
     def generator():
-        print(">>> [DEBUG] Generating optimized response...")
-        try:
-            for message, metadata in current_agent.stream(
-                {"messages": [("user", final_prompt)]}, 
-                stream_mode="messages"
-            ):
-                if hasattr(message, 'content') and message.content:
-                    yield message.content
-        except Exception as e:
-            print(f"[ERROR] {e}")
-            yield "An error occurred."
+        
+        with llama_lock:
+            print(">>> [DEBUG] Validating input...")
+            
+            llmToUse = gpt_llm if modelChoice == 'GPT' else llm
+            validation_prompt = (
+                "You are an input filter . Analyze the following text.\n"
+                f"{question}"
+                "Is this a legitimate job description or technical request that requires a professional proposal? "
+                "Response with ONLY 'YES' or 'NO' . Do not Explain."
+            )
+            respValidation = llmToUse.invoke(validation_prompt)
+            
+            if "YES" not in respValidation.content.upper():
+                print("[VALIDATION CHECK]: FAILED")
+                yield "Error: the provided input does not appear to be a valid job description."
+                return
+            
+            current_agent = agent_gpt if modelChoice == 'GPT' else agent_qwen
+            try:
+                print(">>> [DEBUG] Generating optimized response...")
+                for message, metadata in current_agent.stream(
+                    {"messages": [("user", final_prompt)]}, 
+                    stream_mode="messages"
+                ):
+                    if hasattr(message, 'content') and message.content:
+                        yield message.content
+            except Exception as e:
+                print(f"[ERROR] {e}")
+                yield "An error occurred."
 
     return generator()
             
