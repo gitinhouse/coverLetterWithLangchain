@@ -113,6 +113,7 @@ def get_response(question,tech_list, thread_id=None,modelChoice=None):
     current_agent = agent_gpt if modelChoice == 'GPT' else agent_qwen
     
     found_urls = re.findall(r'(https?://[^\s]+)',question)
+    client_site_url = found_urls[0] if found_urls else "N/A"
     url_context =""
 
     if found_urls:
@@ -122,7 +123,7 @@ def get_response(question,tech_list, thread_id=None,modelChoice=None):
             docs = loader.load()
             
             web_text = docs[0].page_content[:1000].replace('\n',' ')
-            url_context = f"\nUSER PROVIDED URL CONTENT : {web_text}\n"
+            url_context = f"\n<CLIENT_SITE_CONTENT>\nURL: {client_site_url}\nContent: {web_text}\n</CLIENT_SITE_CONTENT>\n"
             print(f"[URL CONTEXT] : {url_context}\n")
         except Exception as e:
             print(f"Error occured during reading URL : {e}")
@@ -137,12 +138,14 @@ def get_response(question,tech_list, thread_id=None,modelChoice=None):
         projects = search_file_context.invoke({"tech":i,"query":question,"thread_id":thread_id})  
         
         structured_context += f"TECHNOLOGY: {i}\n"
-        structured_context += f"RELEVANT PROJECTS : \n{projects}\n"
+        structured_context += f"<MY_PORTFOLIO_LIST>\n{projects}\n</MY_PORTFOLIO_LIST>\n"
         structured_context += "---\n"
     
     final_prompt = (
-        f"CONTEXT (Categorized by Technology):\n{structured_context}\n"
-        f"{url_context}"
+        f"DATA SOURCES:\n"
+        f"{url_context}\n"
+        "MY PORTFOLIO DATA (ONLY USE THESE FOR PROJECTS SECTION) \n"
+        f"{structured_context}\n"
         f"JOB DESCRIPTION :\n{question}\n\n"
         "TASK: Write a proposal based on the CONTEXT and JOB above.\n"
         "Follow this exact sequence:\n"
@@ -151,7 +154,7 @@ def get_response(question,tech_list, thread_id=None,modelChoice=None):
     
     if url_context:
         final_prompt += (
-            f"2. IMPORTANT: In your first paragraph, explicitly mention that you have 'analyzed the website {found_urls[0]}' "
+            f"2. IMPORTANT: In your first paragraph, explicitly mention that you have 'analyzed the website {client_site_url}' "
             "and explain how your technical solution applies specifically to what you saw there. "
             "Write a 3-4 sentence paragraph starting with 'Yes, I can...'\n"
         )
@@ -162,6 +165,8 @@ def get_response(question,tech_list, thread_id=None,modelChoice=None):
         "3. For EACH technology listed in the CONTEXT (Categorized by Technology) , if the JOB DESCRIPTION specifies plugins : get plugins ::else get projects,write a section :"
         "'I have worked with [Technology Name] and built these projects:'\n "
         "followed by 3-4 project or plugin URLs ,"
+        f"   CRITICAL: Never list the client site ({client_site_url}) as your own work.\n"
+        "   ONLY use URLs found inside <MY_PORTFOLIO_LIST> tags.\n"
         "Each project MUST include exactly these fields and project Url and categories must be in different lines:\n"
         "   - Project URL: [URL from context]\n"
         "   - Categories: [Categories from context]\n"
